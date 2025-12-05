@@ -1,0 +1,145 @@
+Tentu, saya akan ubah skrip addvlgrpc tersebut menjadi addtrgrpc.
+Perubahannya mengikuti pola yang sudah kita bahas sebelumnya: mengganti vless menjadi trojan di konfigurasi dan mengubah pengambilan UUID menjadi Password di bagian hasil.
+## 📜 Kode untuk addtrgrpc
+Berikut adalah skrip yang sudah disesuaikan untuk membuat pengguna Trojan GRPC.
+#!/bin/bash
+
+# ================= KONFIGURASI PROTOKOL =================
+readonly INBOUND_TAG="TROJAN_GRPC"
+readonly PROTOCOL_NAME="Trojan GRPC"
+readonly PROXIES_PAYLOAD='{"trojan": {}}'
+readonly INBOUNDS_PAYLOAD=$(printf '{"trojan": ["%s"]}' "$INBOUND_TAG")
+# =======================================================
+
+# Fungsi untuk menampilkan pesan error dan keluar
+error_exit() {
+    echo -e "\n[ERROR] $1" >&2
+    exit 1
+}
+
+# Membaca konfigurasi dari file .env
+load_env_config() {
+    local ENV_FILE="/etc/marzban/.env"
+    if [[ ! -r "$ENV_FILE" ]]; then error_exit "File konfigurasi di ${ENV_FILE} tidak ditemukan atau tidak bisa dibaca."; fi
+    while IFS='=' read -r key value; do
+        value="${value//\"/}"
+        case "$key" in
+            "DOMAIN") DOMAIN="$value" ;;
+            "ADMIN_USERNAME") ADMIN_USERNAME="$value" ;;
+            "ADMIN_PASSWORD") ADMIN_PASSWORD="$value" ;;
+        esac
+    done < "$ENV_FILE"
+    if [[ -z "$DOMAIN" || -z "$ADMIN_USERNAME" || -z "$ADMIN_PASSWORD" ]]; then error_exit "Variabel (DOMAIN, ADMIN_USERNAME, ADMIN_PASSWORD) tidak ditemukan atau kosong di ${ENV_FILE}."; fi
+    MARZBAN_URL="https://$DOMAIN"
+}
+
+# Pengecekan awal sebelum skrip berjalan
+pre_run_checks() {
+    if [[ "$(id -u)" -ne 0 ]]; then error_exit "Skrip ini harus dijalankan sebagai root atau dengan sudo."; fi
+    for cmd in jq curl tee; do
+        if ! command -v "$cmd" &> /dev/null; then error_exit "Perintah '$cmd' tidak ditemukan. Mohon install terlebih dahulu."; fi
+    done
+}
+
+# Mendapatkan token otentikasi dari API Marzban
+get_api_token() {
+    local token_response
+    token_response=$(curl -s --max-time 10 -X POST "${MARZBAN_URL}/api/admin/token" \
+        -H "Content-Type: application/x-www-form-urlencoded" \
+        --data-urlencode "username=${ADMIN_USERNAME}" \
+        --data-urlencode "password=${ADMIN_PASSWORD}")
+    API_TOKEN=$(echo "$token_response" | jq -r '.access_token')
+    if [[ -z "$API_TOKEN" || "$API_TOKEN" == "null" ]]; then error_exit "Gagal mendapatkan token API. Pastikan username/password admin di .env benar dan URL API bisa diakses."; fi
+}
+
+# Meminta input dari pengguna untuk detail akun baru
+get_user_input() {
+    clear
+    echo "=========================================="
+    echo "         Membuat Akun ${PROTOCOL_NAME}"
+    echo "=========================================="
+    read -p "Masukkan Username              : " username
+    [[ -z "$username" ]] && error_exit "Username tidak boleh kosong."
+    read -p "Masa Aktif (hari, 0=unlimited) : " expire_days
+    [[ "$expire_days" =~ ^[0-9]+$ ]] || error_exit "Input masa aktif harus berupa angka."
+    read -p "Kuota (GB, 0=unlimited)        : " data_limit_gb
+    [[ "$data_limit_gb" =~ ^[0-9]+$ ]] || error_exit "Input kuota harus berupa angka."
+}
+
+# Membuat user baru melalui API Marzban
+create_user() {
+    local expire_timestamp=0
+    if [[ "$expire_days" -gt 0 ]]; then expire_timestamp=$(date -d "+$expire_days days" +%s); fi
+    local data_limit_bytes=0
+    if [[ "$data_limit_gb" -gt 0 ]]; then data_limit_bytes=$((data_limit_gb * 1024 * 1024 * 1024)); fi
+    local reset_strategy="no_reset"
+    if [[ "$expire_days" -gt 30 && "$data_limit_gb" -gt 0 ]]; then
+        reset_strategy="month"
+        echo -e "\nINFO: Masa aktif > 30 hari, kuota akan direset setiap bulan."
+    fi
+    local json_payload
+    json_payload=$(cat <<EOF
+{
+    "username": "$username", "proxies": $PROXIES_PAYLOAD, "inbounds": $INBOUNDS_PAYLOAD,
+    "expire": $expire_timestamp, "data_limit": $data_limit_bytes,
+    "data_limit_reset_strategy": "$reset_strategy"
+}
+EOF
+)
+    API_RESPONSE=$(curl -s -X POST "$MARZBAN_URL/api/user" \
+        -H "Authorization: Bearer $API_TOKEN" \
+        -H "Content-Type: application/json" -d "$json_payload" | tee data.txt)
+}
+
+# Menampilkan hasil pembuatan akun
+display_results() {
+    if ! jq -e --arg user "$username" '.username == $user' >/dev/null <<< "$API_RESPONSE"; then
+        echo
+        error_exit "Gagal membuat akun. Respons mentah dari API (tersimpan di data.txt):\n$(echo "$API_RESPONSE" | jq .)"
+    fi
+
+    local trojan_password expire_ts sub_url
+    IFS=$'\t' read -r trojan_password expire_ts sub_url < <(echo "$API_RESPONSE" | jq -r '[.proxies.trojan.password, .expire, .subscription_url] | @tsv')
+
+    local expire_date_str="Always On"
+    if [[ "$expire_days" -gt 0 && "$expire_ts" != "null" && "$expire_ts" -ne 0 ]]; then expire_date_str=$(TZ="Asia/Jakarta" LC_TIME=id_ID.UTF-8 date -d "@$expire_ts" '+%d %B %Y, %H:%M WIB'); fi
+    local data_limit_str="Unlimited"
+    if [[ "$data_limit_gb" -ne 0 ]]; then data_limit_str="${data_limit_gb} GB"; fi
+    local sub_url_full="${MARZBAN_URL}${sub_url}"
+    local xray_config_file="/var/lib/marzban/xray_config.json"
+    local service_name
+    service_name=$(jq -r --arg tag "$INBOUND_TAG" '.inbounds[] | select(.tag == $tag) | .streamSettings.grpcSettings.serviceName' "$xray_config_file")
+    if [[ -z "$service_name" ]]; then service_name="[SERVICENAME TIDAK DITEMUKAN]"; fi
+
+    clear
+    echo "----------------------------------"
+    echo "     DETAIL AKUN TROJAN GRPC"
+    echo "----------------------------------"
+    printf "%-15s: %s\n" "Username" "$username"
+    printf "%-15s: %s\n" "Password" "$trojan_password"
+    printf "%-15s: %s\n" "Domain/Host" "$DOMAIN"
+    printf "%-15s: %s\n" "Service Name" "$service_name"
+    printf "%-15s: %s\n" "Masa Aktif" "$expire_date_str"
+    printf "%-15s: %s\n" "Limit Kuota" "$data_limit_str"
+    if [[ "$expire_days" -gt 30 && "$data_limit_gb" -gt 0 ]]; then printf "%-15s: %s\n" "Reset Kuota" "Setiap Bulan"; fi
+    printf "%-15s: %s\n" "Subscription" "$sub_url_full"
+    echo "----------------------------------"
+    
+    printf "%-15s:\n" "TROJAN GRPC LINK"
+    jq -r '.links[]' <<< "$API_RESPONSE" | while IFS= read -r link; do
+        echo "$link"
+    done
+    echo "----------------------------------"
+}
+
+main() {
+    pre_run_checks
+    load_env_config
+    get_api_token
+    get_user_input
+    create_user
+    display_results
+}
+
+main "$@"
+

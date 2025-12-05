@@ -1,0 +1,119 @@
+#!/bin/bash
+
+# --- KONFIGURASI ---
+ENV_FILE="/etc/marzban/.env"
+
+# --- FUNGSI & PEMERIKSAAN AWAL ---
+# Fungsi untuk menampilkan pesan error dan keluar
+error_exit() {
+    echo "Error: $1" >&2
+    exit 1
+}
+
+# Pengecekan prasyarat
+if ! command -v jq &> /dev/null; then
+    error_exit "'jq' tidak ditemukan. Mohon install jq terlebih dahulu."
+fi
+if ! [ -r "$ENV_FILE" ]; then
+    error_exit "Tidak dapat membaca file $ENV_FILE. Jalankan dengan 'sudo'."
+fi
+
+# --- MEMBACA KONFIGURASI & AUTENTIKASI ---
+# Menggunakan 'source' lebih sederhana jika format file .env valid
+source "$ENV_FILE"
+
+if [ -z "$DOMAIN" ] || [ -z "$ADMIN_USERNAME" ] || [ -z "$ADMIN_PASSWORD" ]; then
+    error_exit "Variabel DOMAIN, ADMIN_USERNAME, atau ADMIN_PASSWORD tidak ditemukan di $ENV_FILE."
+fi
+
+MARZBAN_URL="https://$DOMAIN"
+
+# Mendapatkan token
+token_response=$(curl -s -L -X POST "$MARZBAN_URL/api/admin/token" \
+    -H "Content-Type: application/x-www-form-urlencoded" \
+    -d "username=$ADMIN_USERNAME&password=$ADMIN_PASSWORD")
+
+ACCESS_TOKEN=$(echo "$token_response" | jq -r .access_token)
+if [ "$ACCESS_TOKEN" == "null" ]; then
+    error_exit "Gagal mendapatkan Access Token. Cek kredensial Anda."
+fi
+
+# --- MENGAMBIL & MENAMPILKAN DATA PENGGUNA ---
+# Mengambil semua data pengguna
+api_response=$(curl -s -L -X GET "$MARZBAN_URL/api/users?limit=10000" \
+    -H "Authorization: Bearer $ACCESS_TOKEN")
+
+# Cek jika ada error dari API
+if echo "$api_response" | jq -e 'has("detail")' > /dev/null; then
+    error_message=$(echo "$api_response" | jq -r '.detail')
+    error_exit "Terjadi kesalahan saat mengambil data pengguna: $error_message"
+fi
+
+user_count=$(echo "$api_response" | jq '.users | length')
+clear
+
+if [ "$user_count" -eq 0 ]; then
+    echo "◇──────────────────────────────◇"
+    echo "      DAFTAR USER DI SERVER"
+    echo "◇──────────────────────────────◇"
+    echo "   Tidak ada data User di Server"
+    echo "◇──────────────────────────────◇"
+    exit 0
+fi
+
+# Mengolah data JSON menjadi format Tab-Separated Values (TSV) menggunakan jq
+users_tsv=$(echo "$api_response" | jq -r '
+  .users[] |
+
+  # Fungsi untuk format kuota dari bytes ke GB
+  def formatLimit(bytes):
+    if bytes == 0 or bytes == null then "Unlimited"
+    else (bytes / 1073741824 | tostring | .[0:4]) + " GB"
+    end;
+
+  # Fungsi untuk format pemakaian dari bytes ke MB/GB
+  def formatUsage(bytes):
+    (if bytes == null then 0 else bytes end) as $b |
+    ($b / 1073741824 | tostring | .[0:4]) as $gb |
+    "\($gb) GB";
+
+  # Fungsi untuk format tanggal kedaluwarsa ke format WIB
+  def format_expire(timestamp):
+    if timestamp == 0 or timestamp == null then "Always On"
+    # Menambahkan 7 jam (25200 detik) untuk konversi ke WIB (UTC+7)
+    else ( (timestamp + 25200 | strftime("%d-%m-%Y %H:%M")) + "" )
+    end;
+    
+  # Fungsi untuk format inbounds
+  def format_inbounds(inbounds_obj):
+    if inbounds_obj == null or (inbounds_obj | length) == 0 then "Semua"
+    else (inbounds_obj | values | flatten | join(", "))
+    end;
+
+  # Menyusun output per baris dengan pemisah tab
+  [
+    .username,
+    .status,
+    formatLimit(.data_limit),
+    formatUsage(.used_traffic),
+    format_expire(.expire),
+    format_inbounds(.inbounds)
+  ] | @tsv
+')
+
+# --- MENAMPILKAN TABEL ---
+# Header Tabel
+printf "◇───────────────────────────────────────────────────────────────────────────────────────────────────────────◇\n"
+printf "| %-20s | %-8s | %-11s | %-12s | %-16s | %s\n" \
+  "USERNAME" "STATUS" "DATA LIMIT" "USED" "EXPIRED (WIB)" "INBOUNDS"
+printf "◇───────────────────────────────────────────────────────────────────────────────────────────────────────────◇\n"
+
+# Membaca setiap baris dari hasil jq dan menampilkannya dengan format printf
+while IFS=$'\t' read -r username status data_limit used_traffic expire_date inbounds; do
+  printf "| %-20s | %-8s | %-11s | %-12s | %-16s | %s\n" \
+    "$username" "$status" "$data_limit" "$used_traffic" "$expire_date" "$inbounds"
+done <<< "$users_tsv"
+
+printf "◇───────────────────────────────────────────────────────────────────────────────────────────────────────────◇\n"
+echo "TOTAL USER: $user_count"
+echo ""

@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ user.username }} - Sub Info</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.2/dist/full.min.css" rel="stylesheet" type="text/css" />
+
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script defer src="https://cdn.rawgit.com/davidshimjs/qrcodejs/gh-pages/qrcode.min.js"></script>
+
+    <style>
+        body {
+            background: url('https://4kwallpapers.com/images/wallpapers/windows-server-2025-3840x2400-15386.jpg') no-repeat center center fixed;
+            background-size: cover;
+            font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+        }
+        .glass {
+            background: rgba(31, 41, 55, 0.6);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        /* Pastikan semua teks putih di bawah Apps & Quick Import + Telegram Support */
+        .glass h2, 
+        .glass h3, 
+        .glass a, 
+        .glass span, 
+        .glass p,
+        .text-center a {
+            color: #ffffff !important;
+}
+    </style>
+
+    <script id="config-data" type="application/json">
+        {{ user.links | tojson }}
+    </script>
+</head>
+
+<body class="text-gray-200">
+
+    <dialog id="qr_modal" class="modal">
+        <div class="modal-box bg-gray-800">
+            <h3 id="modalTitle" class="font-bold text-lg text-center">QR Code</h3>
+            <div class="flex items-center justify-center my-4 bg-white p-4 rounded-lg">
+                <div id="qrcode"></div>
+            </div>
+            <p class="py-4 text-center text-sm">Click outside to close.</p>
+        </div>
+        <form method="dialog" class="modal-backdrop">
+            <button>close</button>
+        </form>
+    </dialog>
+
+    <div class="flex min-h-screen flex-col justify-center items-center p-4">
+        <div class="w-full max-w-2xl mx-auto space-y-8">
+
+            <div class="glass rounded-2xl shadow-xl p-6">
+                <div class="flex flex-col sm:flex-row items-center gap-6">
+                    <div class="flex flex-col items-center space-y-3">
+                        <div class="radial-progress text-green-500" style="--value:0; --size:8rem; --thickness: 1rem;" id="progress-bar">
+                           <span id="progress-text" class="text-white text-xl font-bold">0%</span>
+                        </div>
+                        <h2 class="text-xl font-bold">{{ user.username }}</h2>
+                        <span id="status-badge" class="px-3 py-1 text-sm font-semibold rounded-full"></span>
+                    </div>
+                    <div class="w-full sm:w-px h-px sm:h-24 bg-gray-600"></div>
+                    <div class="flex-1 text-center sm:text-left space-y-2">
+                        <p>
+                            <strong>Data Usage:</strong> 
+                            <span class="font-mono">
+                                {{ user.used_traffic | bytesformat }} / 
+                                {% if not user.data_limit %}∞{% else %}{{ user.data_limit | bytesformat }}{% endif %}
+                            </span>
+                            <span id="reset-interval" class="text-sm text-gray-200 block"></span>
+                            <span id="reset-countdown" class="text-sm text-blue-300 block"></span>
+                        </p>
+                        <p><strong>Expires on:</strong> <span class="font-mono">{% if not user.expire %}Never{% else %}{{ user.expire | datetime }}{% endif %}</span></p>
+                        <p><strong>Remaining Days:</strong> <span class="font-mono">{% if not user.expire %}∞{% else %}{% set remaining_days = ((user.expire - now().timestamp()) // (24 * 3600)) %}{{ remaining_days | int if (remaining_days | int) > -1 else 0 }} Days{% endif %}</span></p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="glass rounded-2xl shadow-xl p-6">
+                <h2 class="text-2xl font-bold mb-4">My Configs</h2>
+                <div id="configs_section" class="flex flex-col gap-y-2">
+                </div>
+            </div>
+            
+            <div class="glass rounded-2xl shadow-xl p-6">
+                <h2 class="text-2xl font-bold mb-4">Apps & Quick Import</h2>
+                <div class="space-y-6">
+                    <div>
+                        <h3 class="text-lg font-semibold border-b border-gray-600 pb-2 mb-3">iOS</h3>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <a id="ios-streisand" class="btn justify-between glass">Streisand <span class="badge badge-success">Recommended</span></a>
+                            <a id="ios-v2box" class="btn justify-between glass">V2Box</a>
+                            <a id="ios-singbox" class="btn justify-between glass">Sing-Box</a>
+                        </div>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-semibold border-b border-gray-600 pb-2 mb-3">Android</h3>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <a id="android-v2rayng" class="btn justify-between glass">v2rayNG <span class="badge badge-success">Recommended</span></a>
+                            <a id="android-nekobox" class="btn justify-between glass">NekoBox</a>
+                            <a id="android-singbox" class="btn justify-between glass">Sing-Box</a>
+                        </div>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-semibold border-b border-gray-600 pb-2 mb-3">Windows</h3>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                             <a id="windows-clashverge" class="btn justify-between glass">Clash Verge</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="text-center">
+                <a href="https://t.me/after_sweet" class="btn btn-info btn-wide glass">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" viewBox="0 0 50 50" fill="currentColor"><path d="M25,2c12.703,0,23,10.297,23,23S37.703,48,25,48S2,37.703,2,25S12.297,2,25,2z M32.934,34.375	c0.423-1.298,2.405-14.234,2.65-16.783c0.074-0.772-0.17-1.285-0.648-1.514c-0.578-0.278-1.434-0.139-2.427,0.219	c-1.362,0.491-18.774,7.884-19.78,8.312c-0.954,0.405-1.856,0.847-1.856,1.487c0,0.45,0.267,0.703,1.003,0.966	c0.766,0.273,2.695,0.858,3.834,1.172c1.097,0.303,2.346,0.04,3.046-0.395c0.742-0.461,9.305-6.191,9.92-6.693	c0.614-0.502,1.104,0.141,0.602,0.644c-0.502,0.502-6.38,6.207-7.155,6.997c-0.941,0.959-0.273,1.953,0.358,2.351	c0.721,0.454,5.906,3.932,6.687,4.49c0.781,0.558,1.573,0.811,2.298,0.811C32.191,36.439,32.573,35.484,32.934,34.375z"></path></svg>
+                    Telegram Support
+                </a>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        const dataLimit = parseFloat("{{ user.data_limit or 0 }}");
+        const dataUsed = parseFloat("{{ user.used_traffic or 0 }}");
+        const userStatus = "{{ user.status.value }}";
+        const fullUrl = "{{ user.subscription_url }}";
+        const resetInterval = "{{ user.data_limit_reset_strategy.value }}";
+
+        function setHrefs() {
+            document.getElementById("ios-streisand").href = `streisand://import/${fullUrl}`;
+            document.getElementById("ios-v2box").href = `v2box://install-sub?url=${fullUrl}&name=Sub`;
+            document.getElementById("ios-singbox").href = `sing-box://import-remote-profile?url=${fullUrl}#Sub`;
+            document.getElementById("android-v2rayng").href = `v2rayng://install-config?url=${fullUrl}`;
+            document.getElementById("android-nekobox").href = `sn://subscription?url=${fullUrl}&name=Sub`;
+            document.getElementById("android-singbox").href = `sing-box://import-remote-profile?url=${fullUrl}#Sub`;
+            document.getElementById("windows-clashverge").href = `clash://install-config?url=${fullUrl}`;
+        }
+
+        function copyToClipboard(button, textToCopy) {
+            navigator.clipboard.writeText(textToCopy).then(() => {
+                if(button) {
+                    const originalText = button.textContent;
+                    button.textContent = 'Copied!';
+                    setTimeout(() => {
+                        button.textContent = originalText;
+                    }, 2000);
+                }
+            }).catch(err => {
+                console.error('Failed to copy: ', err);
+            });
+        }
+        
+        function openQrModal(title, url) {
+            document.getElementById('modalTitle').innerText = title;
+            const qrcodeContainer = document.getElementById('qrcode');
+            qrcodeContainer.innerHTML = '';
+            new QRCode(qrcodeContainer, {
+                text: url,
+                width: 256,
+                height: 256,
+            });
+            qr_modal.showModal();
+        }
+
+        function extractNameFromConfigURL(url) {
+            try {
+                const namePattern = /#([^#]*)/;
+                const match = url.match(namePattern);
+                if (match && match[1]) return decodeURIComponent(match[1]);
+                if (url.startsWith("vmess://")) {
+                    const decodedString = atob(url.replace("vmess://", ""));
+                    return JSON.parse(decodedString).ps || "Vmess Config";
+                }
+            } catch (e) {
+                console.error("Could not extract name from URL:", url, e);
+            }
+            return "Config Link";
+        }
+        
+        function renderConfigs() {
+            const configsElement = document.querySelector("#configs_section");
+            try {
+                const configDataElement = document.getElementById('config-data');
+                const configLinksJson = configDataElement.textContent.trim();
+                const configArray = JSON.parse(configLinksJson);
+
+                if (!Array.isArray(configArray) || configArray.length === 0) {
+                    configsElement.innerHTML = "<p class='text-sm text-gray-400'>No individual configs available.</p>";
+                    return;
+                }
+                
+                configArray.forEach((cfg) => {
+                    const configName = extractNameFromConfigURL(cfg);
+                    const elementHTML = `
+                    <div class="flex items-center justify-between bg-gray-900/50 p-3 rounded-lg">
+                        <span class="font-mono truncate pr-4">${configName}</span>
+                        <div class="flex items-center gap-x-2">
+                            <button onclick="copyToClipboard(this, '${cfg}')" class="btn btn-xs btn-outline btn-info">Copy</button>
+                            <button onclick="openQrModal('${configName}', '${cfg}')" class="btn btn-xs btn-outline btn-success">QR</button>
+                        </div>
+                    </div>`;
+                    configsElement.innerHTML += elementHTML;
+                });
+
+            } catch (error) {
+                console.error("Error parsing config data:", error);
+                configsElement.innerHTML = "<p class='text-sm text-yellow-400'>Error loading config data.</p>";
+            }
+        }
+
+        function setResetIntervalText() {
+            const resetTextElement = document.getElementById("reset-interval");
+            const resetCountdownElement = document.getElementById("reset-countdown");
+            let resetText = "";
+            let daysLeft = "";
+
+            switch (resetInterval) {
+                case "day":
+                    resetText = "(Resets Every Day)";
+                    daysLeft = "Next Reset in: < 24h";
+                    break;
+                case "week":
+                    resetText = "(Resets Every Week)";
+                    daysLeft = "Next Reset in: 7 Days";
+                    break;
+                case "month":
+                    resetText = "(Resets Every Month)";
+                    daysLeft = "Next Reset in: 30 Days";
+                    break;
+                case "year":
+                    resetText = "(Resets Every Year)";
+                    daysLeft = "Next Reset in: 365 Days";
+                    break;
+                default:
+                    resetText = "";
+                    daysLeft = "";
+            }
+
+            if (resetTextElement) resetTextElement.textContent = resetText;
+            if (resetCountdownElement) resetCountdownElement.textContent = daysLeft;
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            setHrefs();
+            renderConfigs();
+            setResetIntervalText();
+
+            const progressBar = document.getElementById('progress-bar');
+            const progressText = document.getElementById('progress-text');
+            let usagePercentage = 0;
+            if (dataLimit > 0) {
+                 usagePercentage = Math.min((dataUsed / dataLimit) * 100, 100).toFixed(1);
+            }
+            progressBar.style.setProperty("--value", usagePercentage);
+            progressText.innerText = `${usagePercentage}%`;
+            
+            if (usagePercentage < 40) progressBar.classList.add('text-success');
+            else if (usagePercentage < 80) progressBar.classList.add('text-warning');
+            else progressBar.classList.add('text-error');
+
+            const statusBadge = document.getElementById('status-badge');
+            let statusText = 'Disabled';
+            let statusClass = 'badge-ghost';
+            switch(userStatus) {
+                case 'active':
+                    statusText = 'Active';
+                    statusClass = 'badge-success';
+                    break;
+                case 'limited':
+                    statusText = 'Limited';
+                    statusClass = 'badge-error';
+                    break;
+                case 'expired':
+                    statusText = 'Expired';
+                    statusClass = 'badge-warning';
+                    break;
+            }
+            statusBadge.textContent = statusText;
+            statusBadge.classList.add('badge', statusClass);
+        });
+    </script>
+</body>
+
+</html>

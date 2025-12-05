@@ -1,0 +1,135 @@
+#!/bin/bash
+
+DB="/var/lib/marzban/db.sqlite3"
+LOG="/var/lib/marzban/access.log"
+CACHE="/tmp/marzban_ip_cache.txt"
+
+# Warna
+green="\e[38;5;82m"
+red="\033[31m"
+normal='\033[0m'
+orange="\e[38;5;130m"
+bright_green="\e[92;1m"
+
+# Konversi ukuran
+convert_size() {
+    local -i bytes=$1
+    if [[ $bytes -lt 1024 ]]; then
+        echo "${bytes}B"
+    elif [[ $bytes -lt 1048576 ]]; then
+        echo "$(((bytes + 1023) / 1024))KB"
+    elif [[ $bytes -lt 1073741824 ]]; then
+        echo "$(((bytes + 1048575) / 1048576))MB"
+    else
+        echo "$(((bytes + 1073741823) / 1073741824))GB"
+    fi
+}
+
+# Lookup ISP (cached)
+lookup_isp() {
+    local ip="$1"
+    local isp
+
+    isp=$(grep "^$ip|" "$CACHE" 2>/dev/null | cut -d'|' -f2-)
+    if [[ -n "$isp" ]]; then
+        echo "$isp"
+        return
+    fi
+
+    if command -v whois >/dev/null 2>&1; then
+        isp=$(whois "$ip" 2>/dev/null | grep -iE "OrgName|descr|owner" | head -n 1 | cut -d: -f2- | xargs)
+    fi
+    [[ -z "$isp" ]] && isp="Unknown ISP"
+
+    echo "$ip|$isp" >> "$CACHE"
+    echo "$isp"
+}
+
+check_marzban() {
+    clear
+    echo -e "${orange}─────────────────────────────────────────${normal}"
+    echo -e "${green}  .:::. MARZBAN USER LOGIN ACCOUNTS .:::.${normal}"
+    echo -e "${orange}─────────────────────────────────────────${normal}"
+
+    # Ambil daftar user
+    user_list=$(sqlite3 "$DB" "SELECT username FROM users;")
+
+    if [[ -z "$user_list" ]]; then
+        echo -e "     ${orange}No users found in database.${normal}"
+        return
+    fi
+
+    # Ambil 250 baris log terakhir
+    recent_logs=$(tail -n 250 "$LOG")
+
+    for user in $user_list; do
+        row=$(sqlite3 "$DB" "SELECT data_limit, used_traffic, expire, data_limit_reset_strategy FROM users WHERE username='$user';")
+        data_limit=$(echo $row | awk -F'|' '{print $1}')
+        used_traffic=$(echo $row | awk -F'|' '{print $2}')
+        expire=$(echo $row | awk -F'|' '{print $3}')
+        reset_strategy=$(echo $row | awk -F'|' '{print $4}')
+
+        # Konversi kuota terpakai
+        readable_usage=$(convert_size ${used_traffic:-0})
+        if [[ "$data_limit" -eq 0 ]]; then
+            readable_limit="Unlimited"
+        else
+            readable_limit=$(convert_size $data_limit)
+        fi
+
+        # Konversi masa aktif
+        if [[ -z "$expire" || "$expire" == "0" ]]; then
+            readable_expire="Never"
+        else
+            readable_expire=$(date -d @"$expire" +"%Y-%m-%d %H:%M:%S")
+        fi
+
+        # Konversi reset strategy
+        case "$reset_strategy" in
+            day)   reset_text="Daily Reset" ;;
+            week)  reset_text="Weekly Reset" ;;
+            month) reset_text="Monthly Reset" ;;
+            no_reset) reset_text="No Reset" ;;
+            *)     reset_text="Unknown" ;;
+        esac
+
+        # Ambil IP + protokol dari log → group by IP
+        declare -A ip_proto_map
+        while read -r line; do
+            ip=$(echo "$line" | grep -oP 'from \K[0-9\.]+')
+            [[ -z "$ip" ]] && continue
+        
+            # Ambil semua [PROTO], hapus "direct", jadikan unik
+            protos=$(echo "$line" | grep -oP '\[\K[^\]]+' | sed 's/\bdirect\b//g' | sort -u | tr '\n' ' ')
+            [[ -n "$protos" ]] && ip_proto_map["$ip"]+="$protos "
+        done < <(echo "$recent_logs" | grep -a "email.*$user" | grep -v "127.0.0.1")
+
+        connection_count=${#ip_proto_map[@]}
+
+        echo -e "${red}  CONNECTION DETAILS:${normal}"
+        echo -e "${orange}┌───────────────────────────────────────┐${normal}"
+        echo -e "${orange}│${normal} USER: $user"
+        echo -e "${orange}│${normal} USAGE: $readable_usage"
+        echo -e "${orange}│${normal} QUOTA: $readable_limit"
+        echo -e "${orange}│${normal} EXPIRE: $readable_expire"
+        echo -e "${orange}│${normal} RESET: $reset_text"
+        echo -e "${orange}│${normal} ONLINE: $connection_count"
+        echo -e "${orange}├───────────────────────────────────────┤${normal}"
+        echo -e "${orange}│ ${bright_green}IP & PROTOCOL LIST:${normal}"
+
+        if [[ $connection_count -gt 0 ]]; then
+            for ip in "${!ip_proto_map[@]}"; do
+                proto_list=$(echo "${ip_proto_map[$ip]}" | tr ' ' '\n' | sort -u | tr '\n' ' ')
+                isp=$(lookup_isp "$ip")
+                echo -e "${orange}│   ${normal}${ip} » ${proto_list}» ${isp}"
+            done | sort
+        else
+            echo -e "${orange}│   ${normal}No active connections"
+        fi
+
+        echo -e "${orange}└───────────────────────────────────────┘${normal}"
+        echo ""
+    done
+}
+
+check_marzban

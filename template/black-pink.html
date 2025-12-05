@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="night">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>My Subscription - {{ user.username }}</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.2/dist/full.min.css" rel="stylesheet" type="text/css" />
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script defer src="https://cdn.rawgit.com/davidshimjs/qrcodejs/gh-pages/qrcode.min.js"></script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            background-color: #0F172A;
+            background-image: linear-gradient(135deg, #1e3a8a 0%, #0f172a 50%, #4c1d95 100%);
+            font-family: 'Poppins', ui-sans-serif, system-ui, sans-serif;
+            background-attachment: fixed;
+        }
+        .glass-card {
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(16px) saturate(180%);
+            -webkit-backdrop-filter: blur(16px) saturate(180%);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+    </style>
+
+    <script id="config-data" type="application/json">
+        {{ user.links | tojson }}
+    </script>
+</head>
+
+<body class="text-gray-200">
+
+    <dialog id="qr_modal" class="modal">
+        <div class="modal-box bg-slate-800 border border-slate-600">
+            <h3 id="modalTitle" class="font-bold text-lg text-center text-white">QR Code</h3>
+            <div class="flex items-center justify-center my-4 bg-white p-4 rounded-lg">
+                <div id="qrcode"></div>
+            </div>
+            <p class="py-4 text-center text-sm text-slate-400">Klik di luar area untuk menutup.</p>
+        </div>
+        <form method="dialog" class="modal-backdrop">
+            <button>close</button>
+        </form>
+    </dialog>
+
+    <div class="flex min-h-screen flex-col justify-center items-center p-4 sm:p-6">
+        <div class="w-full max-w-3xl mx-auto space-y-6">
+
+            <div class="text-center mb-6">
+                <h1 class="text-4xl font-bold text-white">Subscription Details</h1>
+                <p class="text-slate-300 mt-2">Selamat datang, {{ user.username }}!</p>
+            </div>
+
+            <div class="glass-card rounded-2xl p-6">
+                <div class="flex flex-col sm:flex-row items-center gap-6">
+                    <div class="flex flex-col items-center space-y-3">
+                        <div class="radial-progress" style="--value:0; --size:8rem; --thickness: 1rem;" id="progress-bar">
+                           <span id="progress-text" class="text-white text-xl font-bold">0%</span>
+                        </div>
+                        <h2 class="text-xl font-bold text-white">{{ user.username }}</h2>
+                        <span id="status-badge" class="px-3 py-1 text-sm font-semibold rounded-full"></span>
+                    </div>
+                    <div class="w-full sm:w-px h-px sm:h-24 bg-slate-700"></div>
+                    <div class="flex-1 text-center sm:text-left space-y-3 text-slate-300">
+                        <p>
+                            <strong>Data Usage:</strong> 
+                            <span class="font-mono text-cyan-400">{{ user.used_traffic | bytesformat }} / {% if not user.data_limit %}∞{% else %}{{ user.data_limit | bytesformat }}{% endif %}</span>
+                            <br>
+                            <span id="reset-info" class="text-sm text-slate-400"></span>
+                            <br>
+                            <span id="reset-countdown" class="text-sm text-yellow-400"></span>
+                        </p>
+                        <p><strong>Expires on:</strong> <span class="font-mono text-cyan-400">{% if not user.expire %}Never{% else %}{{ user.expire | datetime }}{% endif %}</span></p>
+                        <p><strong>Remaining Days:</strong> <span class="font-mono text-cyan-400">{% if not user.expire %}∞{% else %}{% set remaining_days = ((user.expire - now().timestamp()) // (24 * 3600)) %}{{ remaining_days | int if (remaining_days | int) > -1 else 0 }} Days{% endif %}</span></p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="glass-card rounded-2xl p-6">
+                <div class="flex items-center gap-3 mb-4">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                    <h2 class="text-2xl font-bold text-white">My Configs</h2>
+                </div>
+                <div id="configs_section" class="flex flex-col gap-y-3">
+                    </div>
+            </div>
+            
+            <div class="glass-card rounded-2xl p-6">
+                 <div class="flex items-center gap-3 mb-4">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                    <h2 class="text-2xl font-bold text-white">Apps & Quick Import</h2>
+                </div>
+                <div class="space-y-6 text-white">
+                    <div>
+                        <h3 class="text-lg font-semibold border-b border-slate-700 pb-2 mb-4">iOS</h3>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <a id="ios-streisand" class="btn btn-outline btn-accent justify-between">Streisand <div class="badge badge-primary">Rec</div></a>
+                            <a id="ios-v2box" class="btn btn-outline btn-accent">V2Box</a>
+                            <a id="ios-singbox" class="btn btn-outline btn-accent">Sing-Box</a>
+                        </div>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-semibold border-b border-slate-700 pb-2 mb-4">Android</h3>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <a id="android-v2rayng" class="btn btn-outline btn-accent justify-between">v2rayNG <div class="badge badge-primary">Rec</div></a>
+                            <a id="android-nekobox" class="btn btn-outline btn-accent">NekoBox</a>
+                            <a id="android-singbox" class="btn btn-outline btn-accent">Sing-Box</a>
+                        </div>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-semibold border-b border-slate-700 pb-2 mb-4">Windows</h3>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                             <a id="windows-clashverge" class="btn btn-outline btn-accent">Clash Verge</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="glass-card rounded-2xl p-6">
+                <div class="flex items-center gap-3 mb-4">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-info" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    <h2 class="text-2xl font-bold text-white">Need Help?</h2>
+                </div>
+                <p class="text-slate-300 mb-5">If you encounter any issues or have questions, feel free to contact our support team on Telegram.</p>
+                <a href="https://t.me/after_sweet" target="_blank" class="btn btn-info btn-lg w-full text-white">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
+                    Contact Telegram Support
+                </a>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        const dataLimit = parseFloat("{{ user.data_limit or 0 }}");
+        const dataUsed = parseFloat("{{ user.used_traffic or 0 }}");
+        const userStatus = "{{ user.status.value }}";
+        const fullUrl = "{{ user.subscription_url }}";
+        const resetInterval = "{{ user.data_limit_reset_strategy.value }}";
+
+        function setHrefs() {
+            document.getElementById("ios-streisand").href = `streisand://import/${fullUrl}`;
+            document.getElementById("ios-v2box").href = `v2box://install-sub?url=${fullUrl}&name=Sub`;
+            document.getElementById("ios-singbox").href = `sing-box://import-remote-profile?url=${fullUrl}#Sub`;
+            document.getElementById("android-v2rayng").href = `v2rayng://install-config?url=${fullUrl}`;
+            document.getElementById("android-nekobox").href = `sn://subscription?url=${fullUrl}&name=Sub`;
+            document.getElementById("android-singbox").href = `sing-box://import-remote-profile?url=${fullUrl}#Sub`;
+            document.getElementById("windows-clashverge").href = `clash://install-config?url=${fullUrl}`;
+        }
+
+        function copyToClipboard(button, textToCopy) {
+            navigator.clipboard.writeText(textToCopy).then(() => {
+                if(button) {
+                    const originalText = button.innerHTML;
+                    button.innerHTML = 'Copied!';
+                    button.classList.add('btn-success');
+                    setTimeout(() => {
+                        button.innerHTML = originalText;
+                        button.classList.remove('btn-success');
+                    }, 2000);
+                }
+            }).catch(err => {
+                console.error('Failed to copy: ', err);
+            });
+        }
+        
+        function openQrModal(title, url) {
+            document.getElementById('modalTitle').innerText = title;
+            const qrcodeContainer = document.getElementById('qrcode');
+            qrcodeContainer.innerHTML = '';
+            new QRCode(qrcodeContainer, { text: url, width: 256, height: 256 });
+            qr_modal.showModal();
+        }
+
+        function extractNameFromConfigURL(url) {
+            try {
+                const namePattern = /#([^#]*)/;
+                const match = url.match(namePattern);
+                if (match && match[1]) return decodeURIComponent(match[1]);
+                if (url.startsWith("vmess://")) {
+                    const decodedString = atob(url.replace("vmess://", ""));
+                    return JSON.parse(decodedString).ps || "Vmess Config";
+                }
+            } catch (e) {
+                console.error("Could not extract name from URL:", url, e);
+            }
+            return "Config Link";
+        }
+        
+        function renderConfigs() {
+            const configsElement = document.querySelector("#configs_section");
+            try {
+                const configDataElement = document.getElementById('config-data');
+                const configLinksJson = configDataElement.textContent.trim();
+                const configArray = JSON.parse(configLinksJson);
+
+                if (!Array.isArray(configArray) || configArray.length === 0) {
+                    configsElement.innerHTML = "<p class='text-sm text-slate-400'>No individual configs available.</p>";
+                    return;
+                }
+                
+                configsElement.innerHTML = '';
+                configArray.forEach((cfg) => {
+                    const configName = extractNameFromConfigURL(cfg);
+                    const elementHTML = `
+                    <div class="flex items-center justify-between bg-slate-800/70 p-3 rounded-lg hover:bg-slate-700/70 transition-colors duration-200">
+                        <span class="font-mono truncate pr-4 text-slate-300">${configName}</span>
+                        <div class="flex items-center gap-x-2">
+                            <button onclick="copyToClipboard(this, '${cfg}')" class="btn btn-xs btn-outline btn-primary">Copy</button>
+                            <button onclick="openQrModal('${configName}', '${cfg}')" class="btn btn-xs btn-outline btn-secondary">QR</button>
+                        </div>
+                    </div>`;
+                    configsElement.innerHTML += elementHTML;
+                });
+
+            } catch (error) {
+                console.error("Error parsing config data:", error);
+                configsElement.innerHTML = "<p class='text-sm text-yellow-400'>Error loading config data.</p>";
+            }
+        }
+
+        function setResetInfo() {
+            const resetInfo = document.getElementById("reset-info");
+            const resetCountdown = document.getElementById("reset-countdown");
+            let resetText = "";
+            let intervalMs = 0;
+
+            switch (resetInterval) {
+                case "day": resetText = "(Resets Every Day)"; intervalMs = 24*60*60*1000; break;
+                case "week": resetText = "(Resets Every Week)"; intervalMs = 7*24*60*60*1000; break;
+                case "month": resetText = "(Resets Every Month)"; intervalMs = 30*24*60*60*1000; break;
+                case "year": resetText = "(Resets Every Year)"; intervalMs = 365*24*60*60*1000; break;
+            }
+            resetInfo.textContent = resetText;
+
+            if (intervalMs > 0) {
+                function updateCountdown() {
+                    const now = new Date();
+                    const nextReset = new Date(Math.ceil(now.getTime() / intervalMs) * intervalMs);
+                    const diff = nextReset - now;
+                    if (diff > 0) {
+                        const days = Math.floor(diff / (1000*60*60*24));
+                        const hours = Math.floor((diff / (1000*60*60)) % 24);
+                        const minutes = Math.floor((diff / (1000*60)) % 60);
+                        const seconds = Math.floor((diff / 1000) % 60);
+                        resetCountdown.textContent = `Next reset in ${days}d ${hours}h ${minutes}m ${seconds}s`;
+                    }
+                }
+                updateCountdown();
+                setInterval(updateCountdown, 1000);
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            setHrefs();
+            renderConfigs(); 
+            setResetInfo();
+
+            const progressBar = document.getElementById('progress-bar');
+            const progressText = document.getElementById('progress-text');
+            let usagePercentage = 0;
+            if (dataLimit > 0) {
+                 usagePercentage = Math.min((dataUsed / dataLimit) * 100, 100);
+            }
+            progressBar.style.setProperty("--value", usagePercentage);
+            progressText.innerText = `${usagePercentage.toFixed(1)}%`;
+            
+            if (usagePercentage >= 80) progressBar.classList.add('text-error');
+            else if (usagePercentage >= 40) progressBar.classList.add('text-warning');
+            else progressBar.classList.add('text-success');
+
+            const statusBadge = document.getElementById('status-badge');
+            let statusText = 'Disabled';
+            let statusClass = 'badge-ghost';
+            switch(userStatus) {
+                case 'active': statusText = 'Active'; statusClass = 'badge-success'; break;
+                case 'limited': statusText = 'Limited'; statusClass = 'badge-error'; break;
+                case 'expired': statusText = 'Expired'; statusClass = 'badge-warning'; break;
+            }
+            statusBadge.textContent = statusText;
+            statusBadge.classList.add('badge', statusClass, 'text-white');
+        });
+    </script>
+</body>
+</html>

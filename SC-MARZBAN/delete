@@ -1,0 +1,122 @@
+#!/bin/bash
+
+# ====================================================================
+# Skrip Bash Interaktif untuk Menghapus Pengguna Marzban
+# ====================================================================
+
+set -e
+
+# --- KONFIGURASI ---
+ENV_FILE="/etc/marzban/.env"
+
+# --- Langkah 1: Pemeriksaan Prasyarat & Baca Kredensial ---
+if ! command -v curl &> /dev/null || ! command -v jq &> /dev/null || [ ! -f "$ENV_FILE" ]; then
+    echo "ERROR: Pastikan curl, jq terinstal dan file .env ada di $ENV_FILE." >&2
+    exit 1
+fi
+
+DOMAIN=$(grep -E '^DOMAIN=' "$ENV_FILE" | cut -d '=' -f2 | tr -d '"')
+ADMIN_USERNAME=$(grep -E '^ADMIN_USERNAME=' "$ENV_FILE" | cut -d '=' -f2 | tr -d '"')
+ADMIN_PASSWORD=$(grep -E '^ADMIN_PASSWORD=' "$ENV_FILE" | cut -d '=' -f2 | tr -d '"')
+BASE_URL="https://${DOMAIN}"
+
+# --- Langkah 2: Dapatkan Access Token ---
+TOKEN_RESPONSE=$(curl --fail -s -X POST \
+  --data-urlencode "username=${ADMIN_USERNAME}" \
+  --data-urlencode "password=${ADMIN_PASSWORD}" \
+  "${BASE_URL}/api/admin/token")
+
+if [ $? -ne 0 ]; then
+    echo "ERROR: Gagal saat autentikasi. Cek koneksi atau detail login Anda." >&2
+    exit 1
+fi
+ACCESS_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.access_token')
+if [ "$ACCESS_TOKEN" == "null" ] || [ -z "$ACCESS_TOKEN" ]; then
+    echo "ERROR: Gagal mendapatkan token akses dari respons server." >&2
+    exit 1
+fi
+
+# --- Langkah 3: Ambil dan Tampilkan Daftar Pengguna ---
+USERS_DATA=$(curl -s -X GET -H "Authorization: Bearer ${ACCESS_TOKEN}" "${BASE_URL}/api/users?limit=10000")
+
+declare -a USERNAMES
+USERNAMES[0]=""
+
+clear
+printf "\n%-5s | %-25s | %-22s | %s\n" "NO" "USERNAME" "EXPIRED" "INBOUNDS"
+echo "----------------------------------------------------------------------------------------------------"
+
+user_count=0
+while IFS= read -r line; do
+    user_count=$((user_count + 1))
+    
+    username=$(echo "$line" | jq -r '.username')
+    expire_timestamp=$(echo "$line" | jq -r '.expire')
+    inbounds=$(echo "$line" | jq -r '.inbounds | if (. | length) > 0 then (values | flatten | join(", ")) else "Semua" end')
+
+    if [[ "$expire_timestamp" -eq 0 ]] || [[ "$expire_timestamp" == "null" ]]; then
+        expired_date="Tidak Terbatas"
+    else
+        expired_date=$(date -d "@$expire_timestamp" +"%Y-%m-%d %H:%M:%S")
+    fi
+
+    USERNAMES[$user_count]="$username"
+    
+    printf "%-5s | %-25s | %-22s | %s\n" "$user_count" "$username" "$expired_date" "$inbounds"
+
+done <<< "$(echo "$USERS_DATA" | jq -c '.users[]')"
+
+if [ "$user_count" -eq 0 ]; then
+    echo "Tidak ada pengguna yang ditemukan."
+    exit 0
+fi
+
+echo "----------------------------------------------------------------------------------------------------"
+
+# --- Langkah 4: Minta Input Pengguna untuk Dihapus ---
+echo ""
+read -p "Masukkan nomor pengguna yang akan dihapus (pisahkan dengan koma, cth: 1,5,12): " selection
+
+if [ -z "$selection" ]; then
+    echo "Tidak ada pilihan. Tindakan dibatalkan."
+    exit 0
+fi
+
+# --- Langkah 5: Proses Penghapusan ---
+USERS_TO_DELETE=()
+for num in $(echo "$selection" | tr ',' ' '); do
+    if ! [[ "$num" =~ ^[0-9]+$ ]] || [ -z "${USERNAMES[$num]}" ]; then
+        echo "PERINGATAN: Nomor '$num' tidak valid dan akan dilewati."
+    else
+        USERS_TO_DELETE+=("${USERNAMES[$num]}")
+    fi
+done
+
+if [ ${#USERS_TO_DELETE[@]} -eq 0 ]; then
+    echo "Tidak ada pengguna valid yang dipilih untuk dihapus. Keluar."
+    exit 0
+fi
+
+# ✅ PERUBAHAN: Header ditampilkan satu kali di sini, di luar loop
+echo ""
+echo "◇──────────────────────────────◇"
+echo "        PROSES HAPUS USER"
+echo "◇──────────────────────────────◇"
+
+for username in "${USERS_TO_DELETE[@]}"; do
+    HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
+      -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+      "${BASE_URL}/api/user/${username}")
+
+    # ✅ PERUBAHAN: Output di dalam loop dibuat lebih ringkas
+    if [ "$HTTP_STATUS" -eq 200 ]; then
+        printf "%-25s: %s\n" "$username" "BERHASIL dihapus."
+    elif [ "$HTTP_STATUS" -eq 404 ]; then
+        printf "%-25s: %s\n" "$username" "GAGAL (tidak ditemukan)."
+    else
+        printf "%-25s: %s\n" "$username" "GAGAL (HTTP Status: $HTTP_STATUS)"
+    fi
+done
+
+echo "◇──────────────────────────────◇"
+echo ""
