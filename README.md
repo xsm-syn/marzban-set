@@ -41,7 +41,7 @@ Credit aplikasi full to [Gozargah Marzban](https://github.com/Gozargah), saya ha
  
 # Instalasi Marzban AIO
  ```html
- apt-get update && apt-get upgrade -y && apt dist-upgrade -y && update-grub && wget https://raw.githubusercontent.com/xsm-syn/marzban-set/main/install.sh && chmod +x install.sh && ./install.sh
+ apt-get update && apt-get upgrade -y && apt dist-upgrade -y && update-grub && wget https://raw.githubusercontent.com/xsm-syn/marzban-set/main/auto.sh && chmod +x auto.sh && ./auto.sh
  ```
 
 Buka panel Marzban dengan mengunjungi https://domain.com/dashboard <br>
