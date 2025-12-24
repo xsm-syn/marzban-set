@@ -1,6 +1,7 @@
 #!/bin/bash
 export DEBIAN_FRONTEND=noninteractive
 
+# Warna
 GREEN="\033[1;32m"
 YELLOW="\033[1;33m"
 CYAN="\033[1;36m"
@@ -10,7 +11,7 @@ RESET="\033[0m"
 BOLD="\033[1m"
 GRAY="\033[1;30m"
 
-# Fungsi Spinner
+# --- Fungsi Spinner & Log ---
 show_spinner() {
   local pid=$1
   local delay=0.1
@@ -55,11 +56,13 @@ rm -f /tmp/install.log
 clear
 echo -e "${BOLD}Starting Marzban Auto-Installer...${RESET}"
 
+# Cek Root
 if [ "$(id -u)" != "0" ]; then
     echo -e "${RED}Error: Skrip ini harus dijalankan sebagai root.${RESET}"
     exit 1
 fi
 
+# Cek OS
 supported_os=false
 if [ -f /etc/os-release ]; then
     os_name=$(grep -E '^ID=' /etc/os-release | cut -d= -f2)
@@ -83,9 +86,8 @@ if [ "$supported_os" != true ]; then
     exit 1
 fi
 
-#mkdir /etc/data
+# Input Data
 read -rp "Masukkan Domain: " domain
-#echo "$domain" > /etc/data/domain
 
 while true; do
     read -rp "Masukkan UsernamePanel (hanya huruf dan angka): " userpanel
@@ -107,11 +109,64 @@ echo "$passpanel" > /etc/data/passpanel
 
 echo ""
 
+# --- FUNGSI UTAMA ---
+
 step_prep_system() {
+    # --- AUTO FIX REPOSITORY START ---
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        OS=$ID
+        CODENAME=$VERSION_CODENAME
+        
+        # Backup old sources
+        cp /etc/apt/sources.list /etc/apt/sources.list.backup_auto 2>/dev/null
+
+        if [[ "$OS" == "debian" ]]; then
+            COMPONENTS="main contrib non-free"
+            # Debian 12 (bookworm) ke atas butuh non-free-firmware
+            [[ "$CODENAME" == "bookworm" || "$CODENAME" == "trixie" || "$CODENAME" == "sid" ]] && COMPONENTS+=" non-free-firmware"
+            
+            # Setup Security URL
+            if [[ "$CODENAME" == "bullseye" || "$CODENAME" == "bookworm" || "$CODENAME" == "trixie" ]]; then
+                SEC_URL="http://security.debian.org/debian-security"
+                SEC_SUITE="${CODENAME}-security"
+            else
+                SEC_URL="http://security.debian.org/"
+                SEC_SUITE="${CODENAME}/updates"
+            fi
+
+            cat <<EOF > /etc/apt/sources.list
+deb http://deb.debian.org/debian $CODENAME $COMPONENTS
+deb-src http://deb.debian.org/debian $CODENAME $COMPONENTS
+
+deb http://deb.debian.org/debian ${CODENAME}-updates $COMPONENTS
+deb-src http://deb.debian.org/debian ${CODENAME}-updates $COMPONENTS
+
+deb $SEC_URL $SEC_SUITE $COMPONENTS
+deb-src $SEC_URL $SEC_SUITE $COMPONENTS
+EOF
+
+        elif [[ "$OS" == "ubuntu" ]]; then
+            COMPS="main restricted universe multiverse"
+            cat <<EOF > /etc/apt/sources.list
+deb http://archive.ubuntu.com/ubuntu $CODENAME $COMPS
+deb http://archive.ubuntu.com/ubuntu ${CODENAME}-updates $COMPS
+deb http://archive.ubuntu.com/ubuntu ${CODENAME}-backports $COMPS
+deb http://security.ubuntu.com/ubuntu ${CODENAME}-security $COMPS
+EOF
+        fi
+        
+        # Bersihkan cache apt
+        rm -rf /var/lib/apt/lists/*
+    fi
+    # --- AUTO FIX REPOSITORY END ---
+
     apt-get -y --purge remove samba* apache2* sendmail* bind9* >/dev/null 2>&1
     echo 'DPkg::options { "--force-confdef"; "--force-confold"; };' > /etc/apt/apt.conf.d/99force
     mkdir -p /etc/needrestart/conf.d
     echo '$nrconf{restart} = "a";' > /etc/needrestart/conf.d/99-autorestart.conf
+    
+    # Update Repo
     apt-get update
 }
 
@@ -185,8 +240,7 @@ step_install_vnstat() {
     chown vnstat:vnstat /var/lib/vnstat -R
     systemctl enable vnstat
     /etc/init.d/vnstat restart
-    rm -f /root/vnstat-2.6.tar.gz
-    rm -rf /root/vnstat-2.6
+    # Cleanup manual akan ditangani di akhir
 }
 
 step_install_speedtest() {
@@ -242,32 +296,19 @@ step_firewall_warp() {
 }
 
 download_menu() {
-    echo -e "\n${C_CYAN}Mengunduh semua menu...${C_RESET}"
-
     GITHUB_RAW="https://raw.githubusercontent.com/xsm-syn/marzban-set/main/SC-MARZBAN"
     BIN_PATH="/usr/bin"
 
     menus=(
-        addtr
-        addtrgrpc
-        addtrhu
-        addtrws
-        addvl
-        addvlgrpc
-        addvlhu
-        addvlws
-        addvm
-        addvmgrpc
-        addvmhu
-        addvmws
-        cek
-        delete
-        user
+        addtr addtrgrpc addtrhu addtrws
+        addvl addvlgrpc addvlhu addvlws
+        addvm addvmgrpc addvmhu addvmws
+        cek delete user
     )
 
     for file in "${menus[@]}"; do
-        execute "Download $file" \
-        "wget -q -O ${BIN_PATH}/${file} ${GITHUB_RAW}/${file} && chmod +x ${BIN_PATH}/${file}"
+        wget -q -O "${BIN_PATH}/${file}" "${GITHUB_RAW}/${file}"
+        chmod +x "${BIN_PATH}/${file}"
     done
 }
 
@@ -282,6 +323,11 @@ step_finalize() {
     cd /opt/marzban
     sed -i "s/# SUDO_USERNAME = \"admin\"/SUDO_USERNAME = \"${USER}\"/" /opt/marzban/.env
     sed -i "s/# SUDO_PASSWORD = \"admin\"/SUDO_PASSWORD = \"${PASS}\"/" /opt/marzban/.env
+    mkdir /etc/marzban
+    echo "DOMAIN=\"${DOM}\"" >> /etc/marzban/.env
+    echo "ADMIN_USERNAME=\"${USER}\"" >> /etc/marzban/.env
+    echo "ADMIN_PASSWORD=\"${PASS}\"" >> /etc/marzban/.env
+    
     docker compose down && docker compose up -d
     sleep 15
 
@@ -302,10 +348,13 @@ EOF
     marzban cli admin delete -u admin -y
 }
 
+# Export fungsi agar bisa dibaca sub-shell jika perlu
 export -f step_prep_system step_sysctl_optim step_install_dependencies step_install_marzban_core
 export -f step_install_vnstat step_install_speedtest step_setup_nginx step_ssl_acme step_firewall_warp download_menu step_finalize
 
-run_silent "Preparing System" "step_prep_system"
+# --- EKSEKUSI ---
+
+run_silent "Preparing System & Fixing Repo" "step_prep_system"
 run_silent "Optimizing Kernel (Sysctl)" "step_sysctl_optim"
 run_silent "Installing Dependencies" "step_install_dependencies"
 run_silent "Installing Marzban Core & Assets" "step_install_marzban_core"
@@ -314,31 +363,44 @@ run_silent "Installing Speedtest CLI" "step_install_speedtest"
 run_silent "Configuring Nginx" "step_setup_nginx"
 run_silent "Requesting SSL Certificate" "step_ssl_acme"
 run_silent "Setting up Firewall & Warp" "step_firewall_warp"
-runfsilent "Installing Menu" "download_menu"
+run_silent "Installing Menu" "download_menu"
 run_silent "Finalizing Installation & Starting Docker" "step_finalize"
 
-clear
-
+# Mengambil data untuk ditampilkan
 domain=$(cat /etc/data/domain)
 userpanel=$(cat /etc/data/userpanel)
 passpanel=$(cat /etc/data/passpanel)
 
+# Simpan Log
 touch /root/log-install.txt
-echo "Untuk data login dashboard Marzban: " | tee -a /root/log-install.txt
-echo "-=================================-" | tee -a /root/log-install.txt
-echo "URL HTTPS : https://${domain}/dashboard" | tee -a /root/log-install.txt
-echo "username  : ${userpanel}" | tee -a /root/log-install.txt
-echo "password  : ${passpanel}" | tee -a /root/log-install.txt
-echo "-=================================-" | tee -a /root/log-install.txt
-echo "Telegram : https://t.me/after_sweet" | tee -a /root/log-install.txt
-echo "-=================================-" | tee -a /root/log-install.txt
+echo "Untuk data login dashboard Marzban: " > /root/log-install.txt
+echo "-=================================-" >> /root/log-install.txt
+echo "URL HTTPS : https://${domain}/dashboard" >> /root/log-install.txt
+echo "username  : ${userpanel}" >> /root/log-install.txt
+echo "password  : ${passpanel}" >> /root/log-install.txt
+echo "-=================================-" >> /root/log-install.txt
+echo "Telegram : https://t.me/after_sweet" >> /root/log-install.txt
+echo "-=================================-" >> /root/log-install.txt
 
-echo -e "${GREEN}Script telah berhasil di install${RESET}"
+# --- CLEANUP (Hapus semua file di root kecuali log & hidden files) ---
+# Note: Hidden files (.*) tidak dihapus agar .profile dan .bashrc aman
+find /root -maxdepth 1 -type f ! -name "log-install.txt" ! -name ".*" -delete
 
-echo -e "[\e[1;31mWARNING\e[0m] Silahkan reboot server [default y](y/n)? "
-read answer
-if [ "$answer" == "${answer#[Yy]}" ] ;then
-    exit 0
-else
-    cat /dev/null > ~/.bash_history && history -c && reboot
-fi
+# --- TAMPILAN AKHIR PRO ---
+echo -e ""
+echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════╗${RESET}"
+echo -e "${CYAN}║${RESET} ${GREEN}           INSTALLATION COMPLETED SUCCESSFULLY                  ${RESET}${CYAN}║${RESET}"
+echo -e "${CYAN}╠══════════════════════════════════════════════════════════════════╣${RESET}"
+echo -e "${CYAN}║${RESET} ${GRAY}URL Dashboard :${RESET} ${GREEN}https://${domain}/dashboard${RESET}"
+echo -e "${CYAN}║${RESET} ${GRAY}Username      :${RESET} ${YELLOW}${userpanel}${RESET}"
+echo -e "${CYAN}║${RESET} ${GRAY}Password      :${RESET} ${YELLOW}${passpanel}${RESET}"
+echo -e "${CYAN}╠══════════════════════════════════════════════════════════════════╣${RESET}"
+echo -e "${CYAN}║${RESET} ${GRAY}Telegram      :${RESET} ${BLUE}https://t.me/after_sweet${RESET}"
+echo -e "${CYAN}║${RESET} ${GRAY}Log Saved     :${RESET} ${RED}/root/log-install.txt${RESET}"
+echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════╝${RESET}"
+echo -e ""
+echo -e "${GREEN}Server akan reboot otomatis dalam 10 detik...${RESET}"
+echo -e "${YELLOW}Tekan CTRL+C untuk membatalkan reboot.${RESET}"
+
+sleep 10
+reboot
