@@ -83,9 +83,9 @@ if [ "$supported_os" != true ]; then
     exit 1
 fi
 
-mkdir /etc/data
+#mkdir /etc/data
 read -rp "Masukkan Domain: " domain
-echo "$domain" > /etc/data/domain
+#echo "$domain" > /etc/data/domain
 
 while true; do
     read -rp "Masukkan UsernamePanel (hanya huruf dan angka): " userpanel
