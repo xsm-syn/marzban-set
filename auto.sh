@@ -207,7 +207,10 @@ step_install_dependencies() {
 }
 
 step_install_marzban_core() {
-    sudo bash -c "$(curl -sL https://github.com/xsm-syn/Marzban-scripts/raw/master/marzban.sh)" @ install
+    # Unduh skrip dan eksekusi langsung perintah install tanpa simbol @
+    wget -qO /tmp/marzban_temp.sh "https://raw.githubusercontent.com/xsm-syn/marzban-set/main/marzban.sh"
+    sudo bash /tmp/marzban_temp.sh install
+    rm -f /tmp/marzban_temp.sh
 
     mkdir -p /var/lib/marzban/templates/subscription/
     wget -q -N -P /var/lib/marzban/templates/subscription/ https://raw.githubusercontent.com/xsm-syn/marzban-set/main/index.html
@@ -225,6 +228,7 @@ step_install_marzban_core() {
     chmod +x /usr/bin/cekservice
     wget -q -O /opt/marzban/docker-compose.yml "https://raw.githubusercontent.com/xsm-syn/marzban-set/main/docker-compose.yml"
 }
+
 
 step_install_vnstat() {
     apt-get install vnstat -y
