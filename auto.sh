@@ -256,7 +256,7 @@ step_setup_nginx() {
     mkdir -p /var/log/nginx
     touch /var/log/nginx/access.log
     touch /var/log/nginx/error.log
-    
+    mldir /opt/marzban
     wget -q -O /opt/marzban/nginx.conf "https://raw.githubusercontent.com/xsm-syn/marzban-set/main/nginx.conf"
     wget -q -O /opt/marzban/default.conf "https://raw.githubusercontent.com/xsm-syn/marzban-set/main/vps.conf"
     wget -q -O /opt/marzban/xray.conf "https://raw.githubusercontent.com/xsm-syn/marzban-set/main/xray.conf"
