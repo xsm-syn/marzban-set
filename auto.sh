@@ -229,7 +229,6 @@ step_install_marzban_core() {
     wget -q -O /opt/marzban/docker-compose.yml "https://raw.githubusercontent.com/xsm-syn/marzban-set/main/docker-compose.yml"
 }
 
-
 step_install_vnstat() {
     apt-get install vnstat -y
     /etc/init.d/vnstat restart
@@ -253,10 +252,11 @@ step_install_speedtest() {
 }
 
 step_setup_nginx() {
+    mkdir -p /opt/marzban
     mkdir -p /var/log/nginx
     touch /var/log/nginx/access.log
     touch /var/log/nginx/error.log
-    mldir /opt/marzban
+    
     wget -q -O /opt/marzban/nginx.conf "https://raw.githubusercontent.com/xsm-syn/marzban-set/main/nginx.conf"
     wget -q -O /opt/marzban/default.conf "https://raw.githubusercontent.com/xsm-syn/marzban-set/main/vps.conf"
     wget -q -O /opt/marzban/xray.conf "https://raw.githubusercontent.com/xsm-syn/marzban-set/main/xray.conf"
@@ -317,14 +317,18 @@ download_menu() {
 }
 
 step_finalize() {
+    cd /opt/marzban
+    rm -rf nginx.conf default.conf xray.conf
+    wget -q -O /opt/marzban/nginx.conf "https://raw.githubusercontent.com/xsm-syn/marzban-set/main/nginx.conf"
+    wget -q -O /opt/marzban/default.conf "https://raw.githubusercontent.com/xsm-syn/marzban-set/main/vps.conf"
+    wget -q -O /opt/marzban/xray.conf "https://raw.githubusercontent.com/xsm-syn/marzban-set/main/xray.conf"
+
     local USER=$(cat /etc/data/userpanel)
     local PASS=$(cat /etc/data/passpanel)
     local DOM=$(cat /etc/data/domain)
     
     apt-get autoremove -y
     apt-get clean
-    
-    cd /opt/marzban
     sed -i "s/# SUDO_USERNAME = \"admin\"/SUDO_USERNAME = \"${USER}\"/" /opt/marzban/.env
     sed -i "s/# SUDO_PASSWORD = \"admin\"/SUDO_PASSWORD = \"${PASS}\"/" /opt/marzban/.env
     mkdir /etc/marzban
@@ -361,11 +365,10 @@ export -f step_install_vnstat step_install_speedtest step_setup_nginx step_ssl_a
 run_silent "Preparing System & Fixing Repo" "step_prep_system"
 run_silent "Optimizing Kernel (Sysctl)" "step_sysctl_optim"
 run_silent "Installing Dependencies" "step_install_dependencies"
-run_silent "Configuring Nginx" "step_setup_nginx"
 run_silent "Installing Marzban Core & Assets" "step_install_marzban_core"
 run_silent "Compiling & Installing Vnstat 2.6" "step_install_vnstat"
 run_silent "Installing Speedtest CLI" "step_install_speedtest"
-#run_silent "Configuring Nginx" "step_setup_nginx"
+run_silent "Configuring Nginx" "step_setup_nginx"
 run_silent "Requesting SSL Certificate" "step_ssl_acme"
 run_silent "Setting up Firewall & Warp" "step_firewall_warp"
 run_silent "Installing Menu" "download_menu"
